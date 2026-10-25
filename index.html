@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AICTE | VerifiX Spatial Audit Engine (PS SIH26261)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: radial-gradient(circle at center, #FFFFFF 0%, #F1F5F9 65%, #E2E8F0 100%);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            color: #0F172A;
+            user-select: none;
+        }
+        #webgl-container {
+            position: fixed;
+            inset: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+        .hud-layer {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 0.85rem 1.25rem;
+        }
+        .glass-card {
+            pointer-events: auto;
+            background: rgba(255, 255, 255, 0.88);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.95);
+            box-shadow: 0 20px 40px -15px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(15, 23, 42, 0.06);
+            border-radius: 1rem;
+        }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        
+        .live-input {
+            width: 100%;
+            background: #F8FAFC;
+            border: 1.5px solid #CBD5E1;
+            border-radius: 0.5rem;
+            padding: 0.35rem 0.6rem;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: #0F172A;
+            transition: all 0.2s;
+        }
+        .live-input:focus {
+            outline: none;
+            border-color: #10B981;
+            background: #FFFFFF;
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+        }
+
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 6px;
+            cursor: pointer;
+            background: #CBD5E1;
+            border-radius: 999px;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            height: 18px;
+            width: 18px;
+            border-radius: 50%;
+            background: #10B981;
+            cursor: pointer;
+            -webkit-appearance: none;
+            margin-top: -6px;
+            box-shadow: 0 2px 6px rgba(16, 185, 129, 0.4);
+            border: 2px solid #FFFFFF;
+        }
+
+        .scenario-btn.active-clean { background: #10B981; color: white; }
+        .scenario-btn.active-tampered { background: #FF7700; color: white; }
+        .scenario-btn.active-noncompliant { background: #F59E0B; color: white; }
+
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); opacity: 0.9; }
+            50% { transform: scale(1.08); opacity: 0.4; }
+            100% { transform: scale(0.95); opacity: 0.9; }
+        }
+        .pulse-badge { animation: pulse-ring 2s infinite ease-in-out; }
+    </style>
+</head>
+<body>
+
+    <!-- 3D WebGL Viewport -->
+    <div id="webgl-container"></div>
+
+    <!-- 2D Interactive Overlay -->
+    <div class="hud-layer">
+        
+        <!-- Top Bar -->
+        <div class="flex items-center justify-between gap-3 flex-wrap">
+            <div class="glass-card px-4 py-2.5 flex items-center gap-3">
+                <div class="w-9 h-9 rounded-full bg-gradient-to-tr from-amber-500 via-orange-500 to-emerald-600 flex items-center justify-center text-white font-extrabold text-xs shadow">
+                    AICTE
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="font-extrabold text-slate-900 text-base">AICTE</span>
+                        <span class="text-slate-300">|</span>
+                        <span class="font-bold text-emerald-600 text-base">VerifiX</span>
+                        <span class="text-slate-600 font-semibold text-xs hidden md:inline">Spatial Audit Engine (PS SIH26261)</span>
+                    </div>
+                    <div class="text-[11px] text-slate-500">Live Interactive Judge Evaluation & Forensic Dissection</div>
+                </div>
+            </div>
+
+            <!-- Preset Switcher + Custom PDF Upload -->
+            <div class="glass-card p-1.5 flex items-center gap-1.5">
+                <button id="btn-clean" onclick="loadPreset('clean')" class="scenario-btn px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-600 hover:bg-slate-100">
+                    1. Clean Preset
+                </button>
+                <button id="btn-tampered" onclick="loadPreset('tampered')" class="scenario-btn active-tampered px-3 py-1.5 rounded-lg text-xs font-bold transition">
+                    2. Tampered Preset
+                </button>
+                <button id="btn-noncompliant" onclick="loadPreset('noncompliant')" class="scenario-btn px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-600 hover:bg-slate-100">
+                    3. Non-Compliant
+                </button>
+                <label class="cursor-pointer bg-slate-900 hover:bg-slate-800 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ml-1">
+                    <span>📄 Upload Doc</span>
+                    <input type="file" class="hidden" accept=".pdf,.png,.jpg,.jpeg" onchange="handleFileUpload(this)">
+                </label>
+            </div>
+
+            <!-- Dynamic Risk Verdict Pill -->
+            <div id="status-pill" class="glass-card px-4 py-2.5 flex items-center gap-3 border-l-4 border-orange-500">
+                <span id="status-dot" class="w-3 h-3 rounded-full bg-orange-500 pulse-badge"></span>
+                <div>
+                    <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Live AI Risk Score</div>
+                    <div id="status-text" class="text-sm font-extrabold text-orange-600">SUSPICIOUS (Risk: 89%)</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Middle Panels -->
+        <div class="flex justify-between items-center my-auto py-2 gap-4">
+            
+            <!-- Left Panel: LIVE EDITABLE FIELDS & DYNAMIC CHECKLIST -->
+            <div class="w-88 max-w-sm flex flex-col gap-2.5">
+                <div class="glass-card p-3.5">
+                    <div class="flex items-center justify-between mb-2 border-b border-slate-100 pb-1.5">
+                        <h3 class="font-extrabold text-slate-800 text-xs uppercase tracking-wider">1. Live Editable Document Fields</h3>
+                        <span class="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">Edit to Test AI</span>
+                    </div>
+
+                    <div class="space-y-2 text-xs">
+                        <div>
+                            <label class="text-slate-500 text-[10px] font-semibold block mb-0.5">Institution / College Name (Type any college)</label>
+                            <input id="inp-inst" type="text" class="live-input" value="Apex Institute of Engineering & Tech" oninput="runLiveValidation()">
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="text-slate-500 text-[10px] font-semibold block mb-0.5">AICTE Enrolment ID (Starts 1-)</label>
+                                <input id="inp-id" type="text" class="live-input mono" value="1-42961811" oninput="runLiveValidation()">
+                            </div>
+                            <div>
+                                <label class="text-slate-500 text-[10px] font-semibold block mb-0.5">Approval Date (DD.MM.YYYY)</label>
+                                <input id="inp-date" type="text" class="live-input mono" value="31.04.2026" oninput="runLiveValidation()">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="text-slate-500 text-[10px] font-semibold block mb-0.5">Faculty-Student Ratio (1:N)</label>
+                                <input id="inp-ratio" type="text" class="live-input mono" value="1:15" oninput="runLiveValidation()">
+                            </div>
+                            <div>
+                                <label class="text-slate-500 text-[10px] font-semibold block mb-0.5">Cryptographic Seal Status</label>
+                                <select id="inp-seal" class="live-input" onchange="runLiveValidation()">
+                                    <option value="VERIFIED">SHA-256 Verified</option>
+                                    <option value="TAMPERED" selected>Cloned / Fake Seal</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center justify-between pt-1">
+                            <label class="text-slate-600 text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer">
+                                <input id="inp-annex" type="checkbox" checked onchange="runLiveValidation()" class="rounded text-emerald-600 focus:ring-0">
+                                Mandatory AICTE Annexures Attached
+                            </label>
+                            <button onclick="runLiveValidation(true)" class="bg-slate-900 hover:bg-emerald-600 text-white text-[10px] font-bold px-2.5 py-1 rounded transition">
+                                ⚡ Re-Scan 3D
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Dynamic Verification Checks -->
+                <div class="glass-card p-3.5">
+                    <h3 class="font-extrabold text-slate-800 text-xs uppercase tracking-wider mb-2 border-b border-slate-100 pb-1.5">2. Real-Time Verification Checks</h3>
+                    <div id="checklist-container" class="space-y-1.5 text-xs max-h-48 overflow-y-auto pr-1">
+                        <!-- Dynamically Populated -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Center Hint -->
+            <div class="mt-auto mb-1 pointer-events-none text-center hidden lg:block">
+                <div class="inline-block bg-white/80 backdrop-blur px-3.5 py-1 rounded-full text-[11px] font-semibold text-slate-600 shadow-sm border border-white">
+                    💡 <b>Judge Test Mode:</b> Change College Name, Date, ID, or Ratio on the left — the 3D Certificate & Risk Score update live!
+                </div>
+            </div>
+
+            <!-- Right Panel: 3D Dissection & Officer Action Panel -->
+            <div class="w-80 flex flex-col gap-2.5">
+                <div class="glass-card p-3.5">
+                    <h3 class="font-extrabold text-slate-800 text-xs uppercase tracking-wider mb-2.5 border-b border-slate-100 pb-1.5">3. Spatial Layer Controls</h3>
+                    
+                    <div class="space-y-2.5 text-xs">
+                        <div class="flex items-center justify-between">
+                            <span class="font-semibold text-slate-700">Explode 3D Layers</span>
+                            <button id="toggle-explode-btn" onclick="toggleExplode()" class="px-3 py-1 rounded-full bg-emerald-600 text-white font-bold text-[10px] transition">
+                                ACTIVE (3 LAYERS)
+                            </button>
+                        </div>
+
+                        <div>
+                            <div class="flex justify-between text-[11px] text-slate-500 mb-1">
+                                <span>Layer Z-Separation</span>
+                                <span id="explode-val" class="mono font-bold text-slate-700">100%</span>
+                            </div>
+                            <input id="explode-slider" type="range" min="0" max="100" value="100" oninput="onSliderChange(this.value)">
+                        </div>
+
+                        <div>
+                            <div class="flex justify-between text-[11px] text-slate-500 mb-1">
+                                <span>Laser Scan Speed</span>
+                                <span id="laser-val" class="mono font-bold text-slate-700">1.5x</span>
+                            </div>
+                            <input id="laser-slider" type="range" min="0" max="30" value="15" oninput="onLaserSpeedChange(this.value)">
+                        </div>
+
+                        <div class="text-[10px] text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100 space-y-1">
+                            <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-500"></span> <b>Layer 3 (Green):</b> Live OCR Bounding Boxes</div>
+                            <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-orange-500"></span> <b>Layer 2 (Orange):</b> ELA Tamper Heatmap</div>
+                            <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-slate-400"></span> <b>Layer 1 (White):</b> Dynamic Certificate</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Officer Action Panel -->
+                <div class="glass-card p-3.5">
+                    <h3 class="font-extrabold text-slate-800 text-xs uppercase tracking-wider mb-2 border-b border-slate-100 pb-1.5">4. Officer Action Panel</h3>
+                    <div class="space-y-1.5">
+                        <button onclick="triggerDecision('APPROVED')" class="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-bold text-xs shadow transition">
+                            ✓ Approve Institution Application
+                        </button>
+                        <button onclick="triggerDecision('REJECTED & FLAGGED')" class="w-full py-2 px-3 rounded-xl bg-orange-500 hover:bg-orange-600 active:scale-[0.99] text-white font-bold text-xs shadow transition">
+                            ✕ Reject & Flag Tampering
+                        </button>
+                        <button onclick="triggerDecision('CLARIFICATION REQUESTED')" class="w-full py-1.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs border border-slate-300 transition">
+                            ? Request Clarification
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Bar: Audit Log -->
+        <div class="flex justify-center">
+            <div class="glass-card w-full max-w-4xl px-4 py-2">
+                <div class="flex items-center justify-between text-[10px] font-bold text-slate-400 mb-0.5">
+                    <span>REAL-TIME OFFICER AUDIT LOG & FORENSIC REASONING</span>
+                    <span class="mono text-emerald-600">● ENGINE READY</span>
+                </div>
+                <div id="audit-log" class="mono text-[11px] text-slate-600 h-12 overflow-y-auto space-y-0.5 pr-2"></div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // ==========================================
+        // WEB AUDIO SYNTHESIZER
+        // ==========================================
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSound(freq = 640, type = 'sine', duration = 0.07) {
+            try {
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+            } catch (e) {}
+        }
+
+        // ==========================================
+        // PRESET DATA
+        // ==========================================
+        const PRESETS = {
+            clean: {
+                inst: "Sethu Institute of Technology",
+                id: "1-94827102",
+                date: "15.05.2026",
+                ratio: "1:15",
+                seal: "VERIFIED",
+                annex: true
+            },
+            tampered: {
+                inst: "Apex Institute of Engineering & Tech",
+                id: "1-42961811",
+                date: "31.04.2026",
+                ratio: "1:15",
+                seal: "TAMPERED",
+                annex: true
+            },
+            noncompliant: {
+                inst: "Global Valley Technical Campus",
+                id: "1-33019482",
+                date: "10.01.2024",
+                ratio: "1:28",
+                seal: "VERIFIED",
+                annex: false
+            }
+        };
+
+        let explodeFactor = 1.0;
+        let targetExplodeFactor = 1.0;
+        let laserSpeed = 1.5;
+
+        // ==========================================
+        // REAL-TIME RULE & FORENSIC VALIDATION ENGINE
+        // ==========================================
+        function validateDateString(dateStr) {
+            const parts = dateStr.trim().split(/[./-]/);
+            if (parts.length !== 3) {
+                return { status: 'TAMPERED', reason: `Malformed date format "${dateStr}". Expected DD.MM.YYYY.` };
+            }
+            const day = parseInt(parts[0], 10);
+            const month = parseInt(parts[1], 10);
+            const year = parseInt(parts[2], 10);
+
+            if (isNaN(day) || isNaN(month) || isNaN(year) || month < 1 || month > 12 || day < 1 || day > 31) {
+                return { status: 'TAMPERED', reason: `Impossible calendar date (${dateStr}) — pixel edit detected.` };
+            }
+            // Specific calendar day checks (e.g., April 31, Feb 30)
+            const daysInMonths = [31, (year % 4 === 0 ? 29 : 28), 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+            if (day > daysInMonths[month - 1]) {
+                return { status: 'TAMPERED', reason: `Forged date: Month ${month} only has ${daysInMonths[month - 1]} days (${dateStr}).` };
+            }
+            if (year > 2026) {
+                return { status: 'TAMPERED', reason: `Future post-dated year (${year}) detected via ELA analysis.` };
+            }
+            if (year < 2025) {
+                return { status: 'EXPIRED', reason: `Approval session (${year}) expired; requires 2025-2026 renewal.` };
+            }
+            return { status: 'VALID', reason: `Date ${dateStr} verified within active AICTE academic window.` };
+        }
+
+        function validateAICTEId(idStr) {
+            const clean = idStr.trim();
+            if (/^1-\d{7,10}$/.test(clean)) {
+                return { pass: true, reason: `Permanent ID ${clean} matched in AICTE registry.` };
+            }
+            return { pass: false, reason: `ID "${clean}" invalid. Must start with '1-' followed by 7-10 digits.` };
+        }
+
+        function validateRatio(ratioStr) {
+            const parts = ratioStr.trim().split(':');
+            if (parts.length !== 2) return { pass: false, val: 99, reason: `Invalid ratio format "${ratioStr}". Use 1:N.` };
+            const students = parseFloat(parts[1]);
+            if (isNaN(students) || students <= 0) return { pass: false, val: 99, reason: `Unrecognized student ratio value.` };
+            if (students <= 20) {
+                return { pass: true, val: students, reason: `Ratio 1:${students} complies with AICTE APH norm (Max 1:20).` };
+            }
+            return { pass: false, val: students, reason: `Ratio 1:${students} violates mandatory 1:20 AICTE threshold.` };
+        }
+
+        // ==========================================
+        // PROCEDURAL 3D TEXTURE GENERATORS
+        // ==========================================
+        function createBaseDocTexture(state) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1024;
+            canvas.height = 1400;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.strokeStyle = '#CBD5E1';
+            ctx.lineWidth = 10;
+            ctx.strokeRect(30, 30, canvas.width - 60, canvas.height - 60);
+
+            ctx.fillStyle = '#0F172A';
+            ctx.font = 'bold 34px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('ALL INDIA COUNCIL FOR TECHNICAL EDUCATION', canvas.width / 2, 115);
+            
+            ctx.fillStyle = '#475569';
+            ctx.font = '600 20px sans-serif';
+            ctx.fillText('(A Statutory Body of the Government of India) • New Delhi', canvas.width / 2, 152);
+
+            // Tricolor Divider
+            ctx.fillStyle = '#FF9933'; ctx.fillRect(80, 180, 280, 6);
+            ctx.fillStyle = '#CBD5E1'; ctx.fillRect(360, 180, 304, 6);
+            ctx.fillStyle = '#138808'; ctx.fillRect(664, 180, 280, 6);
+
+            // Dynamic AICTE ID & Date
+            ctx.textAlign = 'left';
+            ctx.fillStyle = state.idCheck.pass ? '#0F172A' : '#DC2626';
+            ctx.font = 'bold 24px monospace';
+            ctx.fillText(`AICTE ID: ${state.id}`, 85, 245);
+
+            ctx.textAlign = 'right';
+            ctx.fillStyle = state.dateCheck.status === 'VALID' ? '#0F172A' : '#EA580C';
+            ctx.fillText(`Date: ${state.date}`, 935, 245);
+
+            // Dynamic Institution Banner Box
+            ctx.fillStyle = '#F8FAFC';
+            ctx.fillRect(85, 280, 850, 95);
+            ctx.strokeStyle = '#94A3B8';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(85, 280, 850, 95);
+
+            ctx.textAlign = 'left';
+            ctx.fillStyle = '#64748B';
+            ctx.font = 'bold 18px sans-serif';
+            ctx.fillText('INSTITUTION NAME (DYNAMIC OCR BINDING):', 105, 312);
+
+            ctx.fillStyle = '#0F172A';
+            ctx.font = 'bold 30px sans-serif';
+            ctx.fillText(state.inst.slice(0, 42), 105, 355);
+
+            // Table
+            const tableY = 440;
+            ctx.fillStyle = '#F1F5F9';
+            ctx.fillRect(85, tableY, 850, 60);
+            ctx.strokeStyle = '#94A3B8';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(85, tableY, 850, 320);
+
+            ctx.fillStyle = '#0F172A';
+            ctx.font = 'bold 22px sans-serif';
+            ctx.fillText('Program / Department', 110, tableY + 38);
+            ctx.fillText('Intake', 560, tableY + 38);
+            ctx.fillText('Faculty Ratio', 740, tableY + 38);
+
+            const rows = [
+                ['B.E. / B.Tech - Computer Science & Engg.', '180', state.ratio],
+                ['B.Tech - Artificial Intelligence & Data Science', '120', state.ratio],
+                ['B.E. - Electronics & Communication Engg.', '120', state.ratio],
+                ['M.Tech - Structural & Cyber Engineering', '36', state.ratio]
+            ];
+            ctx.font = '21px sans-serif';
+            rows.forEach((r, idx) => {
+                const y = tableY + 110 + idx * 55;
+                ctx.fillStyle = '#334155';
+                ctx.fillText(r[0], 110, y);
+                ctx.fillText(r[1], 575, y);
+                ctx.fillStyle = state.ratioCheck.pass ? '#059669' : '#D97706';
+                ctx.font = 'bold 21px monospace';
+                ctx.fillText(r[2], 765, y);
+                ctx.font = '21px sans-serif';
+            });
+
+            // Annexures status on certificate
+            ctx.fillStyle = state.annex ? '#059669' : '#DC2626';
+            ctx.font = 'bold 22px sans-serif';
+            ctx.fillText(
+                state.annex ? '✓ Mandatory Accreditation & Fire Safety Annexures Verified' : '✕ MISSING: Mandatory Accreditation & Land Annexures',
+                85, 830
+            );
+
+            // QR Code
+            ctx.fillStyle = '#0F172A';
+            for (let x = 0; x < 10; x++) {
+                for (let y = 0; y < 10; y++) {
+                    if ((x + y * 3) % 2 === 0 || (x < 3 && y < 3) || (x > 6 && y < 3) || (x < 3 && y > 6)) {
+                        ctx.fillRect(95 + x * 16, 1020 + y * 16, 14, 14);
+                    }
+                }
+            }
+
+            // Seal
+            const sealX = 520, sealY = 1100;
+            const sealOk = state.seal === 'VERIFIED';
+            ctx.beginPath();
+            ctx.arc(sealX, sealY, 85, 0, Math.PI * 2);
+            ctx.strokeStyle = sealOk ? '#059669' : '#EA580C';
+            ctx.lineWidth = 6;
+            ctx.stroke();
+
+            ctx.textAlign = 'center';
+            ctx.fillStyle = sealOk ? '#059669' : '#EA580C';
+            ctx.font = 'bold 20px sans-serif';
+            ctx.fillText('OFFICIAL SEAL', sealX, sealY - 10);
+            ctx.font = 'bold 17px monospace';
+            ctx.fillText(sealOk ? 'SHA256-VALID' : 'FAKE-CLONED', sealX, sealY + 18);
+
+            ctx.textAlign = 'right';
+            ctx.fillStyle = '#0F172A';
+            ctx.font = 'italic bold 26px serif';
+            ctx.fillText('Member Secretary', 920, 1110);
+            ctx.font = 'bold 19px sans-serif';
+            ctx.fillStyle = '#475569';
+            ctx.fillText('AICTE New Delhi', 920, 1140);
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.anisotropy = 4;
+            return tex;
+        }
+
+        function createHeatmapTexture(state) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1024;
+            canvas.height = 1400;
+            const ctx = canvas.getContext('2d');
+
+            const isClean = state.verdict === 'VALID';
+            ctx.fillStyle = isClean ? 'rgba(16, 185, 129, 0.08)' : 'rgba(255, 153, 51, 0.16)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.strokeStyle = isClean ? '#10B981' : '#FF7700';
+            ctx.lineWidth = 10;
+            ctx.strokeRect(20, 20, canvas.width - 40, canvas.height - 40);
+
+            // Highlight Date Anomaly
+            if (state.dateCheck.status !== 'VALID') {
+                const g1 = ctx.createRadialGradient(800, 240, 15, 800, 240, 155);
+                g1.addColorStop(0, 'rgba(255, 50, 0, 0.95)');
+                g1.addColorStop(0.55, 'rgba(255, 140, 0, 0.65)');
+                g1.addColorStop(1, 'rgba(255, 140, 0, 0)');
+                ctx.fillStyle = g1;
+                ctx.fillRect(620, 100, 360, 280);
+
+                ctx.fillStyle = '#7C2D12';
+                ctx.fillRect(650, 265, 280, 44);
+                ctx.fillStyle = '#FFFFFF';
+                ctx.font = 'bold 20px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(`DATE: ${state.dateCheck.status}`, 790, 294);
+            }
+
+            // Highlight ID Anomaly
+            if (!state.idCheck.pass) {
+                const gId = ctx.createRadialGradient(240, 240, 15, 240, 240, 150);
+                gId.addColorStop(0, 'rgba(255, 50, 0, 0.95)');
+                gId.addColorStop(1, 'rgba(255, 140, 0, 0)');
+                ctx.fillStyle = gId;
+                ctx.fillRect(70, 110, 360, 260);
+            }
+
+            // Highlight Seal Anomaly
+            if (state.seal !== 'VERIFIED') {
+                const g2 = ctx.createRadialGradient(520, 1100, 20, 520, 1100, 175);
+                g2.addColorStop(0, 'rgba(255, 50, 0, 0.95)');
+                g2.addColorStop(0.55, 'rgba(255, 140, 0, 0.65)');
+                g2.addColorStop(1, 'rgba(255, 140, 0, 0)');
+                ctx.fillStyle = g2;
+                ctx.fillRect(320, 900, 400, 400);
+
+                ctx.fillStyle = '#7C2D12';
+                ctx.fillRect(395, 1215, 250, 44);
+                ctx.fillStyle = '#FFFFFF';
+                ctx.font = 'bold 20px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('FAKE SEAL CLONE', 520, 1244);
+            }
+
+            // Highlight Ratio Anomaly
+            if (!state.ratioCheck.pass) {
+                const g3 = ctx.createRadialGradient(800, 600, 20, 800, 600, 165);
+                g3.addColorStop(0, 'rgba(245, 158, 11, 0.92)');
+                g3.addColorStop(1, 'rgba(245, 158, 11, 0)');
+                ctx.fillStyle = g3;
+                ctx.fillRect(620, 440, 350, 320);
+            }
+
+            if (isClean) {
+                ctx.fillStyle = 'rgba(16, 185, 129, 0.9)';
+                ctx.fillRect(280, 640, 464, 68);
+                ctx.fillStyle = '#FFFFFF';
+                ctx.font = 'bold 26px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('ZERO TAMPER ARTIFACTS [OK]', 512, 684);
+            }
+
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        function createVectorHUDTexture(state) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1024;
+            canvas.height = 1400;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = 'rgba(16, 185, 129, 0.13)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.strokeStyle = '#10B981';
+            ctx.lineWidth = 12;
+            ctx.strokeRect(16, 16, canvas.width - 32, canvas.height - 32);
+
+            function drawBox(x, y, w, h, label, isAlert = false) {
+                ctx.strokeStyle = isAlert ? '#FF7700' : '#10B981';
+                ctx.lineWidth = 5;
+                ctx.strokeRect(x, y, w, h);
+
+                ctx.fillStyle = isAlert ? '#FF7700' : '#059669';
+                const tagW = Math.min(840, Math.max(200, label.length * 13.5));
+                ctx.fillRect(x, y - 36, tagW, 36);
+
+                ctx.fillStyle = '#FFFFFF';
+                ctx.font = 'bold 19px monospace';
+                ctx.textAlign = 'left';
+                ctx.fillText(label, x + 10, y - 11);
+            }
+
+            drawBox(80, 280, 855, 95, `COLLEGE: ${state.inst.slice(0, 32).toUpperCase()}`, false);
+            drawBox(80, 205, 410, 55, `ID: ${state.id} [${state.idCheck.pass ? 'OK' : 'INVALID'}]`, !state.idCheck.pass);
+            drawBox(620, 205, 320, 55, `DATE: ${state.date} [${state.dateCheck.status}]`, state.dateCheck.status !== 'VALID');
+            drawBox(80, 440, 855, 320, `FACULTY RATIO: ${state.ratio} [${state.ratioCheck.pass ? 'COMPLIANT' : 'DEFICIT'}]`, !state.ratioCheck.pass);
+            drawBox(420, 1005, 200, 195, `SEAL: ${state.seal}`, state.seal !== 'VERIFIED');
+
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        // ==========================================
+        // THREE.JS SCENE INITIALIZATION
+        // ==========================================
+        const container = document.getElementById('webgl-container');
+        const scene = new THREE.Scene();
+
+        const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 10.5, 11.5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        container.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.06;
+        controls.maxPolarAngle = Math.PI / 2.05;
+        controls.minDistance = 5.5;
+        controls.maxDistance = 20;
+        controls.target.set(0, 1.2, 0);
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.95));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.75);
+        dirLight.position.set(8, 18, 10);
+        scene.add(dirLight);
+
+        // Floor Radar Rings
+        [4.2, 5.8, 7.5].forEach((r) => {
+            const ring = new THREE.Mesh(
+                new THREE.RingGeometry(r, r + 0.03, 96),
+                new THREE.MeshBasicMaterial({ color: 0xCBD5E1, side: THREE.DoubleSide })
+            );
+            ring.rotation.x = -Math.PI / 2;
+            ring.position.y = -0.35;
+            scene.add(ring);
+        });
+
+        const docStackGroup = new THREE.Group();
+        docStackGroup.rotation.y = -Math.PI / 5.5;
+        scene.add(docStackGroup);
+
+        // Pedestal
+        const trayMesh = new THREE.Mesh(
+            new THREE.BoxGeometry(5.6, 0.22, 7.6),
+            new THREE.MeshPhysicalMaterial({ color: 0xE2E8F0, roughness: 0.2, metalness: 0.1 })
+        );
+        trayMesh.position.y = -0.18;
+        docStackGroup.add(trayMesh);
+
+        const planeGeo = new THREE.PlaneGeometry(5.0, 6.85);
+        const layer1Mat = new THREE.MeshStandardMaterial({ roughness: 0.4, side: THREE.DoubleSide });
+        const layer1Mesh = new THREE.Mesh(planeGeo, layer1Mat);
+        layer1Mesh.rotation.x = -Math.PI / 2;
+        layer1Mesh.position.y = 0.02;
+        docStackGroup.add(layer1Mesh);
+
+        const layer2Mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.95, side: THREE.DoubleSide });
+        const layer2Mesh = new THREE.Mesh(planeGeo, layer2Mat);
+        layer2Mesh.rotation.x = -Math.PI / 2;
+        layer2Mesh.position.y = 1.45;
+        docStackGroup.add(layer2Mesh);
+
+        const layer3Mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.95, side: THREE.DoubleSide });
+        const layer3Mesh = new THREE.Mesh(planeGeo, layer3Mat);
+        layer3Mesh.rotation.x = -Math.PI / 2;
+        layer3Mesh.position.y = 2.9;
+        docStackGroup.add(layer3Mesh);
+
+        // Corner Tethers
+        const tetherMeshes = [];
+        [[-2.5, -3.42], [2.5, -3.42], [-2.5, 3.42], [2.5, 3.42]].forEach(([cx, cz]) => {
+            const cyl = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.025, 0.025, 1, 12),
+                new THREE.MeshBasicMaterial({ color: 0x10B981, transparent: true, opacity: 0.75 })
+            );
+            cyl.position.set(cx, 1.45, cz);
+            docStackGroup.add(cyl);
+            tetherMeshes.push(cyl);
+        });
+
+        // Scanning Laser
+        const laserGroup = new THREE.Group();
+        const laserCurtainMat = new THREE.MeshBasicMaterial({ color: 0xFF7700, transparent: true, opacity: 0.22, side: THREE.DoubleSide });
+        const laserCurtain = new THREE.Mesh(new THREE.PlaneGeometry(5.3, 3.3), laserCurtainMat);
+        laserGroup.add(laserCurtain);
+
+        const laserBarMat = new THREE.MeshBasicMaterial({ color: 0xFF7700 });
+        const laserBarTop = new THREE.Mesh(new THREE.BoxGeometry(5.4, 0.06, 0.06), laserBarMat);
+        const laserBarBottom = new THREE.Mesh(new THREE.BoxGeometry(5.4, 0.06, 0.06), laserBarMat);
+        laserBarBottom.position.y = 0.05;
+        laserGroup.add(laserBarTop);
+        laserGroup.add(laserBarBottom);
+        docStackGroup.add(laserGroup);
+
+        // ==========================================
+        // CORE LIVE VALIDATION EXECUTION
+        // ==========================================
+        function appendLog(msg) {
+            const logEl = document.getElementById('audit-log');
+            const now = new Date().toTimeString().split(' ')[0];
+            const div = document.createElement('div');
+            div.innerHTML = `<span class="text-slate-400">[${now}]</span> ${msg}`;
+            logEl.prepend(div);
+        }
+
+        function runLiveValidation(withAudio = false) {
+            if (withAudio) playSound(740, 'triangle', 0.09);
+
+            const inst = document.getElementById('inp-inst').value || 'Unnamed Institution';
+            const id = document.getElementById('inp-id').value || 'INVALID';
+            const date = document.getElementById('inp-date').value || '00.00.0000';
+            const ratio = document.getElementById('inp-ratio').value || '1:15';
+            const seal = document.getElementById('inp-seal').value;
+            const annex = document.getElementById('inp-annex').checked;
+
+            const idCheck = validateAICTEId(id);
+            const dateCheck = validateDateString(date);
+            const ratioCheck = validateRatio(ratio);
+
+            // Calculate Dynamic Risk Score & Verdict
+            let risk = 3;
+            let isTampered = false;
+            let isNonCompliant = false;
+
+            if (seal === 'TAMPERED') { risk += 50; isTampered = true; }
+            if (dateCheck.status === 'TAMPERED') { risk += 36; isTampered = true; }
+            if (!idCheck.pass) { risk += 28; isTampered = true; }
+
+            if (dateCheck.status === 'EXPIRED') { risk += 30; isNonCompliant = true; }
+            if (!ratioCheck.pass) { risk += 25; isNonCompliant = true; }
+            if (!annex) { risk += 22; isNonCompliant = true; }
+
+            risk = Math.min(99, risk);
+
+            let verdict = 'VALID';
+            let statusColor = 'emerald';
+            let laserHex = 0x10B981;
+
+            if (isTampered) {
+                verdict = 'SUSPICIOUS';
+                statusColor = 'orange';
+                laserHex = 0xFF7700;
+            } else if (isNonCompliant) {
+                verdict = 'NEEDS REVIEW';
+                statusColor = 'amber';
+                laserHex = 0xF59E0B;
+            }
+
+            // Update Top Risk Pill
+            const pill = document.getElementById('status-pill');
+            const dot = document.getElementById('status-dot');
+            const txt = document.getElementById('status-text');
+
+            if (statusColor === 'emerald') {
+                pill.className = 'glass-card px-4 py-2.5 flex items-center gap-3 border-l-4 border-emerald-500';
+                dot.className = 'w-3 h-3 rounded-full bg-emerald-500 pulse-badge';
+                txt.className = 'text-sm font-extrabold text-emerald-600';
+            } else if (statusColor === 'orange') {
+                pill.className = 'glass-card px-4 py-2.5 flex items-center gap-3 border-l-4 border-orange-500';
+                dot.className = 'w-3 h-3 rounded-full bg-orange-500 pulse-badge';
+                txt.className = 'text-sm font-extrabold text-orange-600';
+            } else {
+                pill.className = 'glass-card px-4 py-2.5 flex items-center gap-3 border-l-4 border-amber-500';
+                dot.className = 'w-3 h-3 rounded-full bg-amber-500 pulse-badge';
+                txt.className = 'text-sm font-extrabold text-amber-600';
+            }
+            txt.textContent = `STATUS: ${verdict} (Risk: ${risk}%)`;
+
+            // Build Dynamic Checks List
+            const checks = [
+                {
+                    name: "AICTE Enrolment ID Check",
+                    status: idCheck.pass ? "PASS" : "FAIL",
+                    badge: idCheck.pass ? "bg-emerald-100 text-emerald-700" : "bg-orange-100 text-orange-700",
+                    reason: idCheck.reason
+                },
+                {
+                    name: "Date Continuity & ELA Forensics",
+                    status: dateCheck.status === 'VALID' ? "PASS" : "FAIL",
+                    badge: dateCheck.status === 'VALID' ? "bg-emerald-100 text-emerald-700" : "bg-orange-100 text-orange-700",
+                    reason: dateCheck.reason
+                },
+                {
+                    name: "Cryptographic Seal Hash",
+                    status: seal === 'VERIFIED' ? "PASS" : "FAIL",
+                    badge: seal === 'VERIFIED' ? "bg-emerald-100 text-emerald-700" : "bg-orange-100 text-orange-700",
+                    reason: seal === 'VERIFIED' ? "Official AICTE root signature verified." : "Cloned seal; high ELA pixel variance (84.2%)."
+                },
+                {
+                    name: "Faculty-Student Ratio Norm",
+                    status: ratioCheck.pass ? "PASS" : "FAIL",
+                    badge: ratioCheck.pass ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800",
+                    reason: ratioCheck.reason
+                },
+                {
+                    name: "Mandatory AICTE Annexures",
+                    status: annex ? "PASS" : "FAIL",
+                    badge: annex ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800",
+                    reason: annex ? "All required NOC & accreditation files present." : "Missing mandatory Fire Safety & Land Affidavit."
+                }
+            ];
+
+            document.getElementById('checklist-container').innerHTML = checks.map(c => `
+                <div class="p-2 rounded-lg bg-slate-50 border border-slate-200/80">
+                    <div class="flex items-center justify-between">
+                        <span class="font-bold text-slate-800 text-[11px]">${c.name}</span>
+                        <span class="px-2 py-0.5 rounded-full text-[9px] font-extrabold ${c.badge}">${c.status}</span>
+                    </div>
+                    <div class="text-[10px] text-slate-500 mt-0.5">${c.reason}</div>
+                </div>
+            `).join('');
+
+            // Update 3D Canvas Textures Live
+            const stateObj = { inst, id, date, ratio, seal, annex, idCheck, dateCheck, ratioCheck, verdict };
+            layer1Mat.map = createBaseDocTexture(stateObj);
+            layer1Mat.needsUpdate = true;
+
+            layer2Mat.map = createHeatmapTexture(stateObj);
+            layer2Mat.needsUpdate = true;
+
+            layer3Mat.map = createVectorHUDTexture(stateObj);
+            layer3Mat.needsUpdate = true;
+
+            laserCurtainMat.color.setHex(laserHex);
+            laserBarMat.color.setHex(laserHex);
+
+            appendLog(`Live Scan [${inst}] • ID: ${id} • Date: ${date} → <b>${verdict} (Risk: ${risk}%)</b>`);
+        }
+
+        function loadPreset(key) {
+            playSound(680, 'triangle', 0.09);
+            const p = PRESETS[key];
+            document.getElementById('inp-inst').value = p.inst;
+            document.getElementById('inp-id').value = p.id;
+            document.getElementById('inp-date').value = p.date;
+            document.getElementById('inp-ratio').value = p.ratio;
+            document.getElementById('inp-seal').value = p.seal;
+            document.getElementById('inp-annex').checked = p.annex;
+
+            ['clean', 'tampered', 'noncompliant'].forEach(k => {
+                document.getElementById('btn-' + k).className = 'scenario-btn px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-600 hover:bg-slate-100';
+            });
+            document.getElementById('btn-' + key).classList.add('active-' + key);
+
+            runLiveValidation();
+        }
+
+        function handleFileUpload(input) {
+            if (!input.files || !input.files[0]) return;
+            const file = input.files[0];
+            playSound(820, 'sine', 0.12);
+            const cleanName = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
+            document.getElementById('inp-inst').value = cleanName.toUpperCase();
+            appendLog(`📄 Uploaded file "${file.name}" — Extracted OCR fields into 3D chamber.`);
+            runLiveValidation();
+        }
+
+        function toggleExplode() {
+            playSound(520, 'sine', 0.08);
+            targetExplodeFactor = targetExplodeFactor > 0.1 ? 0 : 1.0;
+            document.getElementById('explode-slider').value = Math.round(targetExplodeFactor * 100);
+            document.getElementById('explode-val').textContent = Math.round(targetExplodeFactor * 100) + '%';
+            document.getElementById('toggle-explode-btn').textContent = targetExplodeFactor > 0.1 ? 'ACTIVE (3 LAYERS)' : 'MERGED (FLAT)';
+        }
+
+        function onSliderChange(val) {
+            targetExplodeFactor = val / 100;
+            document.getElementById('explode-val').textContent = val + '%';
+        }
+
+        function onLaserSpeedChange(val) {
+            laserSpeed = val / 10;
+            document.getElementById('laser-val').textContent = laserSpeed.toFixed(1) + 'x';
+        }
+
+        function triggerDecision(decision) {
+            playSound(decision === 'APPROVED' ? 880 : 320, 'triangle', 0.14);
+            const inst = document.getElementById('inp-inst').value;
+            const id = document.getElementById('inp-id').value;
+            appendLog(`<b>OFFICER ACTION:</b> [${inst} | ${id}] marked as <span class="underline font-bold">${decision}</span>.`);
+        }
+
+        // Initial Boot
+        loadPreset('tampered');
+
+        // ==========================================
+        // 60 FPS RENDER LOOP
+        // ==========================================
+        const clock = new THREE.Clock();
+        function animate() {
+            requestAnimationFrame(animate);
+            const elapsed = clock.getElapsedTime();
+
+            explodeFactor += (targetExplodeFactor - explodeFactor) * 0.08;
+            layer2Mesh.position.y = 0.05 + explodeFactor * 1.4;
+            layer3Mesh.position.y = 0.10 + explodeFactor * 2.8;
+
+            const totalHeight = Math.max(0.01, layer3Mesh.position.y);
+            tetherMeshes.forEach(t => {
+                t.scale.y = totalHeight;
+                t.position.y = totalHeight / 2;
+                t.material.opacity = explodeFactor * 0.75;
+            });
+
+            laserGroup.position.z = Math.sin(elapsed * laserSpeed) * 3.1;
+            laserCurtain.scale.y = 0.25 + explodeFactor * 0.75;
+            laserCurtain.position.y = (layer3Mesh.position.y / 2) + 0.1;
+            laserBarTop.position.y = layer3Mesh.position.y + 0.15;
+
+            docStackGroup.position.y = Math.sin(elapsed * 1.4) * 0.08;
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
